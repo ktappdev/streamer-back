@@ -25,8 +25,8 @@ func main() {
 	app.Post("/end-stream", handleEndStream)
 	app.Post("/hi", hi)
 
-	fmt.Println("Server is running on :3000")
-	app.Listen(":3000")
+	fmt.Println("Server is running on :4000")
+	app.Listen(":4000")
 }
 
 func hi(c *fiber.Ctx) error {
