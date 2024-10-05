@@ -23,7 +23,7 @@ func main() {
 	app.Post("/start-stream", handleStartStream)
 	app.Post("/stream", handleStream)
 	app.Post("/end-stream", handleEndStream)
-	app.Post("/hi", hi)
+	app.Get("/hi", hi)
 
 	fmt.Println("Server is running on :4000")
 	app.Listen(":4000")
