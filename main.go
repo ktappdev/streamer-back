@@ -6,9 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
 )
 
 var (
@@ -16,12 +18,15 @@ var (
 	isStreaming     bool
 	streamStartTime time.Time
 	currentFileName string
+	listeners       = make(map[*websocket.Conn]bool)
+	listenersMutex  sync.Mutex
 )
 
 func main() {
 	app := fiber.New()
 
 	app.Post("/stream", handleStream)
+	app.Get("/listen", websocket.New(handleListener))
 
 	fmt.Println("Server is running on :4000")
 	app.Listen(":4000")
@@ -38,6 +43,9 @@ func handleStream(c *fiber.Ctx) error {
 		return c.Status(500).SendString("Failed to process audio chunk")
 	}
 
+	// Broadcast to listeners
+	broadcastToListeners(chunk)
+
 	// Check if 10 seconds have passed or if this is the first chunk
 	if !isStreaming || time.Since(streamStartTime) >= 10*time.Second {
 		if err := saveBufferToFile(); err != nil {
@@ -49,6 +57,39 @@ func handleStream(c *fiber.Ctx) error {
 	}
 
 	return c.SendStatus(200)
+}
+
+func handleListener(c *websocket.Conn) {
+	listenersMutex.Lock()
+	listeners[c] = true
+	listenersMutex.Unlock()
+
+	defer func() {
+		listenersMutex.Lock()
+		delete(listeners, c)
+		listenersMutex.Unlock()
+		c.Close()
+	}()
+
+	for {
+		_, _, err := c.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
+}
+
+func broadcastToListeners(chunk []byte) {
+	listenersMutex.Lock()
+	defer listenersMutex.Unlock()
+
+	for listener := range listeners {
+		err := listener.WriteMessage(websocket.BinaryMessage, chunk)
+		if err != nil {
+			delete(listeners, listener)
+			listener.Close()
+		}
+	}
 }
 
 func saveBufferToFile() error {
