@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,35 +21,13 @@ var (
 func main() {
 	app := fiber.New()
 
-	app.Post("/start-stream", handleStartStream)
 	app.Post("/stream", handleStream)
-	app.Post("/end-stream", handleEndStream)
-	app.Get("/hi", hi)
 
 	fmt.Println("Server is running on :4000")
 	app.Listen(":4000")
 }
 
-func hi(c *fiber.Ctx) error {
-	return c.SendString("Hello, World!")
-}
-
-func handleStartStream(c *fiber.Ctx) error {
-	if isStreaming {
-		return c.Status(400).SendString("A stream is already in progress")
-	}
-	audioBuffer.Reset()
-	isStreaming = true
-	streamStartTime = time.Now()
-	currentFileName = generateFileName()
-	return c.SendString("Stream started")
-}
-
 func handleStream(c *fiber.Ctx) error {
-	if !isStreaming {
-		return c.Status(400).SendString("No active stream. Call /start-stream first")
-	}
-
 	if c.Get("Content-Type") != "audio/mpeg" {
 		return c.Status(400).SendString("Invalid Content-Type. Expected audio/mpeg")
 	}
@@ -59,33 +38,17 @@ func handleStream(c *fiber.Ctx) error {
 		return c.Status(500).SendString("Failed to process audio chunk")
 	}
 
-	// Check if 10 seconds have passed
-	if time.Since(streamStartTime) >= 10*time.Second {
-		err := saveBufferToFile()
-		if err != nil {
+	// Check if 10 seconds have passed or if this is the first chunk
+	if !isStreaming || time.Since(streamStartTime) >= 10*time.Second {
+		if err := saveBufferToFile(); err != nil {
 			return c.Status(500).SendString("Failed to save audio data: " + err.Error())
 		}
 		audioBuffer.Reset()
 		streamStartTime = time.Now()
-		currentFileName = generateFileName()
+		isStreaming = true
 	}
 
-	return c.SendString("Audio chunk received")
-}
-
-func handleEndStream(c *fiber.Ctx) error {
-	if !isStreaming {
-		return c.Status(400).SendString("No active stream to end")
-	}
-
-	err := saveBufferToFile()
-	if err != nil {
-		return c.Status(500).SendString("Failed to save final audio data: " + err.Error())
-	}
-
-	isStreaming = false
-	audioBuffer.Reset()
-	return c.SendString("Stream ended and saved to " + currentFileName)
+	return c.SendStatus(200)
 }
 
 func saveBufferToFile() error {
@@ -93,7 +56,10 @@ func saveBufferToFile() error {
 		return nil // Nothing to save
 	}
 
-	file, err := os.Create(currentFileName)
+	currentFileName = generateFileName()
+	filePath := filepath.Join(".", currentFileName) // Save in the current directory
+
+	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
@@ -104,7 +70,7 @@ func saveBufferToFile() error {
 		return fmt.Errorf("failed to write to file: %w", err)
 	}
 
-	fmt.Printf("Saved audio to %s\n", currentFileName)
+	fmt.Printf("Saved audio to %s\n", filePath)
 	return nil
 }
 
